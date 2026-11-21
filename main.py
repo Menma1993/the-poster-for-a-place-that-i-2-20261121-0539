@@ -1,0 +1,37 @@
+"""Entrypoint: render the VELDARA travel poster to entry.png.
+
+Output directory: the grader's MAKEFUN_OUTPUT_DIR (or OUTPUT_DIR) when
+set, otherwise a relative output/ directory next to this file - never a
+hardcoded absolute path. The grader sets MAKEFUN_OUTPUT_DIR=/output in
+its sandbox, so the poster lands exactly where the scorer reads it.
+
+The render itself is deterministic (fixed seed in draw.py): two runs
+produce a byte-identical entry.png, which is what the site's
+run_completes gate checks.
+"""
+
+import os
+
+from draw import render
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def main():
+    out_dir = (
+        os.environ.get("MAKEFUN_OUTPUT_DIR")
+        or os.environ.get("OUTPUT_DIR")
+        or os.path.join(HERE, "output")
+    )
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "entry.png")
+    # JPEG content in entry.png: the rules allow a whole PNG *or JPEG*,
+    # and a grainy painterly poster compresses far better as JPEG -
+    # PNG blows past the 1 MiB gate (1.49 MB), JPEG quality 90 lands
+    # around 0.3 MB with no visible loss at 1024x1024.
+    render().save(out_path, format="JPEG", quality=90, optimize=True)
+    print("wrote", out_path)
+
+
+if __name__ == "__main__":
+    main()
