@@ -72,6 +72,42 @@ def draw_text_spaced(draw, cx, y, text, font, fill, spacing, shadow=None):
     return total
 
 
+def draw_lantern(draw, gdraw, x, y, s, rng, big=False):
+    """A paper lantern, not a glowing ball: a taller oval with vertical
+    ribs, dark rim caps top and bottom, and a bright core. `big` adds a
+    short string + tassel for foreground lanterns."""
+    squash = rng.uniform(0.85, 1.08)
+    rx = s * 0.82 * squash
+    ry = s * (0.95 if big else 0.88)
+    body_col = rng.choice([(255, 166, 66), (255, 150, 60), (255, 185, 95)])
+    # halo
+    gdraw.ellipse([x - s * 2.4, y - s * 2.4, x + s * 2.4, y + s * 2.4],
+                  fill=(96, 58, 14))
+    # body
+    draw.ellipse([x - rx, y - ry, x + rx, y + ry], fill=body_col + (255,))
+    # bright core, slightly above centre
+    draw.ellipse([x - rx * 0.42, y - ry * 0.62, x + rx * 0.42, y + ry * 0.42],
+                 fill=(255, 214, 130, 255))
+    # vertical ribs across the body, clipped to the oval
+    for frac in (-0.45, -0.22, 0.0, 0.22, 0.45):
+        dx = frac * rx
+        hh = ry * math.sqrt(max(0.0, 1.0 - frac * frac)) * 0.88
+        draw.line([x + dx, y - hh, x + dx, y + hh],
+                  fill=(206, 118, 38, 170), width=2 if s >= 12 else 1)
+    # rim caps top and bottom
+    cap = max(2, int(s * 0.14))
+    draw.rectangle([x - rx * 0.38, y - ry - 1, x + rx * 0.38, y - ry + cap],
+                   fill=(120, 60, 20, 255))
+    draw.rectangle([x - rx * 0.38, y + ry - cap, x + rx * 0.38, y + ry + 1],
+                   fill=(120, 60, 20, 255))
+    if big:
+        # short string + tassel below
+        draw.line([x, y + ry + 1, x, y + ry + 9], fill=(120, 60, 20, 255),
+                  width=2)
+        draw.polygon([(x - 4, y + ry + 9), (x + 4, y + ry + 9),
+                      (x, y + ry + 16)], fill=(255, 200, 110, 255))
+
+
 def render():
     rng = random.Random(SEED)
     np_rng = np.random.default_rng(SEED)
@@ -181,27 +217,20 @@ def render():
         house(rng.uniform(680, 950), rng.uniform(600, 850),
               rng.uniform(42, 66), rng.uniform(30, 52), rng.randint(1, 3))
 
-    # ---------- stone bridge ----------
-    # deck band across the river, arch curving down to the water below it,
-    # lamp posts standing on the deck.
-    bx0, bx1, by = 315, 709, 700
-    draw.arc([bx0 + 25, by - 60, bx1 - 25, by + 100], start=0, end=180,
-             fill=(30, 40, 62, 255), width=18)
-    draw.rectangle([bx0, by, bx1, by + 14], fill=(36, 46, 68, 255))
-    draw.line([bx0, by, bx1, by], fill=(78, 90, 118, 255), width=3)
-    for fx in range(bx0 + 14, bx1 - 10, 46):
-        draw.line([fx, by - 24, fx, by], fill=(30, 40, 62, 255), width=5)
-        draw.ellipse([fx - 5, by - 32, fx + 5, by - 22],
-                     fill=(255, 200, 110, 255))
-        gdraw.ellipse([fx - 14, by - 41, fx + 14, by - 13], fill=(70, 46, 10))
-
     # ---------- lanterns on the river ----------
     lanterns = []
     for _ in range(150):
-        t = rng.uniform(0, 1)
-        y = 580 + t * 420
-        half = 82 + (y - 560) / 464 * 368
-        x = 512 + rng.uniform(-half, half)
+        # keep a clean band where the tagline will sit (y 918-982,
+        # x 140-884): no lantern centre may land there
+        for _attempt in range(12):
+            t = rng.uniform(0, 1)
+            y = 580 + t * 420
+            half = 82 + (y - 560) / 464 * 368
+            x = 512 + rng.uniform(-half, half)
+            if not (918 <= y <= 982 and 140 < x < 884):
+                break
+        else:
+            y = 912
         s = 5 + t * 15 + rng.uniform(-2, 2)
         lanterns.append((x, y, s))
     lanterns.sort(key=lambda l: l[1])
@@ -218,38 +247,56 @@ def render():
     draw = ImageDraw.Draw(base, "RGBA")
 
     for x, y, s in lanterns:
-        gdraw.ellipse([x - s * 2.4, y - s * 2.4, x + s * 2.4, y + s * 2.4],
-                      fill=(96, 58, 14))
-        draw.ellipse([x - s, y - s * 0.82, x + s, y + s * 0.82],
-                     fill=(255, 166, 66, 255))
-        draw.ellipse([x - s * 0.55, y - s * 0.55, x + s * 0.55, y + s * 0.55],
-                     fill=(255, 214, 130, 255))
-        draw.line([x - s * 0.7, y - s * 0.82, x + s * 0.7, y - s * 0.82],
-                  fill=(120, 60, 20, 255), width=2)
-        draw.line([x - s * 0.7, y + s * 0.82, x + s * 0.7, y + s * 0.82],
-                  fill=(120, 60, 20, 255), width=2)
+        draw_lantern(draw, gdraw, x, y, s, rng, big=(s >= 18))
 
     # a few sky lanterns rising
     for _ in range(10):
         x = rng.uniform(80, 940)
         y = rng.uniform(240, 480)
         s = rng.uniform(4, 7)
-        gdraw.ellipse([x - s * 3, y - s * 3, x + s * 3, y + s * 3],
-                      fill=(80, 48, 10))
-        draw.ellipse([x - s, y - s * 0.8, x + s, y + s * 0.8],
-                     fill=(255, 180, 90, 255))
+        draw_lantern(draw, gdraw, x, y, s, rng)
+
+    # ---------- stone bridge ----------
+    # A proper arched stone bridge, drawn AFTER the lanterns so it reads
+    # clearly even at thumbnail size: curved deck, arch opening below it
+    # (river and lanterns show through), stone joints, lamp posts.
+    def deck_y(x):
+        return 706 - 44 * (1.0 - ((x - 512) / 212.0) ** 2)
+
+    def under_y(x):
+        return 748 - 52 * math.sin(math.pi * (x - 300) / 424.0) ** 0.8
+
+    xs = list(range(300, 725, 8))
+    body = [(x, deck_y(x)) for x in xs]
+    body += [(x, under_y(x)) for x in reversed(xs)]
+    draw.polygon(body, fill=(62, 72, 98, 255))
+    # deck highlight
+    draw.line([(x, deck_y(x) - 2) for x in xs],
+              fill=(140, 150, 180, 255), width=4)
+    # arch rim
+    draw.line([(x, under_y(x) - 1) for x in xs],
+              fill=(96, 106, 136, 255), width=3)
+    # stone joints
+    for jx in (352, 410, 468, 556, 614, 672):
+        draw.line([jx, deck_y(jx) + 5, jx, under_y(jx) - 3],
+                  fill=(44, 52, 74, 255), width=2)
+    # abutments anchoring the ends to the banks
+    draw.rectangle([294, 736, 316, 806], fill=(44, 52, 74, 255))
+    draw.rectangle([708, 736, 730, 806], fill=(44, 52, 74, 255))
+    # lamp posts following the deck curve
+    for fx in (336, 398, 460, 522, 584, 646, 700):
+        dy = deck_y(fx)
+        draw.line([fx, dy - 30, fx, dy], fill=(30, 40, 62, 255), width=5)
+        gdraw.ellipse([fx - 16, dy - 46, fx + 16, dy - 14], fill=(70, 46, 10))
+        draw.ellipse([fx - 6, dy - 40, fx + 6, dy - 28],
+                     fill=(255, 200, 110, 255))
 
     # ---------- foreground banks ----------
     draw.polygon([(0, 900), (260, 860), (330, H), (0, H)], fill=(12, 18, 34, 255))
     draw.polygon([(W, 900), (764, 860), (694, H), (W, H)], fill=(12, 18, 34, 255))
-    for (x, y, s) in [(120, 950, 26), (905, 955, 28), (60, 990, 18),
-                      (970, 995, 16)]:
-        gdraw.ellipse([x - s * 2.4, y - s * 2.4, x + s * 2.4, y + s * 2.4],
-                      fill=(96, 58, 14))
-        draw.ellipse([x - s, y - s * 0.82, x + s, y + s * 0.82],
-                     fill=(255, 166, 66, 255))
-        draw.ellipse([x - s * 0.55, y - s * 0.55, x + s * 0.55, y + s * 0.55],
-                     fill=(255, 214, 130, 255))
+    for (x, y, s) in [(120, 992, 22), (904, 994, 24), (52, 1008, 16),
+                      (972, 1010, 14)]:
+        draw_lantern(draw, gdraw, x, y, s, rng, big=True)
 
     # ---------- bloom: screen the blurred glow layer on top ----------
     glow = glow.filter(ImageFilter.GaussianBlur(14))
@@ -272,6 +319,13 @@ def render():
               fill=CREAM + (200,), width=2)
     draw.line([W / 2 + tw / 2 + 16, 210, W / 2 + tw / 2 + 130, 210],
               fill=CREAM + (200,), width=2)
+    # dark scrim behind the tagline so no lantern ever crosses the type
+    scrim = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(scrim)
+    sd.rectangle([150, 928, 874, 972], fill=(10, 16, 30, 115))
+    scrim = scrim.filter(ImageFilter.GaussianBlur(8))
+    base = Image.alpha_composite(base.convert("RGBA"), scrim)
+    draw = ImageDraw.Draw(base, "RGBA")
     draw_text_spaced(draw, W / 2, 946, "WHERE THE RIVER CARRIES THE LIGHT",
                      tag_font, (235, 220, 190), 7)
 
