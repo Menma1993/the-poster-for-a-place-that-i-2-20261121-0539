@@ -11,8 +11,7 @@ import math
 import os
 import random
 
-import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageMath
 
 W = H = 1024
 SEED = 20261121
@@ -29,21 +28,25 @@ def lerp_color(a, b, t):
 
 
 def vertical_gradient(w, h, stops):
-    """stops: list of (position 0..1, rgb). Returns RGB image."""
-    arr = np.zeros((h, w, 3), dtype=np.uint8)
-    ys = np.linspace(0.0, 1.0, h)
+    """stops: list of (position 0..1, rgb). Returns RGB image.
+
+    PIL only: build a 1px-wide strip row by row, then stretch it
+    horizontally (exact - no vertical scaling happens, so the colours
+    are the same as painting every row by hand)."""
+    strip = Image.new("RGB", (1, h))
+    px = strip.load()
     for y in range(h):
-        t = ys[y]
+        t = y / (h - 1) if h > 1 else 0.0
+        color = stops[-1][1]
         for i in range(len(stops) - 1):
             p0, c0 = stops[i]
             p1, c1 = stops[i + 1]
             if p0 <= t <= p1:
                 f = 0.0 if p1 == p0 else (t - p0) / (p1 - p0)
-                arr[y, :, :] = lerp_color(c0, c1, f)
+                color = lerp_color(c0, c1, f)
                 break
-        else:
-            arr[y, :, :] = stops[-1][1]
-    return Image.fromarray(arr, "RGB")
+        px[0, y] = color
+    return strip.resize((w, h))
 
 
 def ridge_points(rng, base_y, amp, x0=0, x1=W, step=16):
@@ -110,7 +113,6 @@ def draw_lantern(draw, gdraw, x, y, s, rng, big=False):
 
 def render():
     rng = random.Random(SEED)
-    np_rng = np.random.default_rng(SEED)
 
     # ---------- sky ----------
     sky = vertical_gradient(W, H, [
@@ -334,11 +336,20 @@ def render():
     draw.rectangle([34, 34, W - 34, H - 34], outline=CREAM + (110,), width=1)
 
     # ---------- grain + vignette ----------
-    # keep the grain light: heavy grain blows the PNG past the 1 MiB gate
-    arr = np.asarray(base.convert("RGB")).astype(np.int16)
-    noise = np_rng.normal(0, 3.0, arr.shape[:2])[..., None]
-    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
-    img = Image.fromarray(arr, "RGB")
+    # keep the grain light: heavy grain blows the PNG past the 1 MiB gate.
+    # PIL only, fully deterministic: a separate seeded Random stream feeds
+    # uniform bytes into a noise image, added per band with ImageMath
+    # (amplitude ~+-8, close to the old gaussian sigma 3).
+    grain_rng = random.Random(SEED + 999)
+    noise = Image.frombytes("L", (W, H), grain_rng.randbytes(W * H))
+    rgb = base.convert("RGB")
+    bands = [
+        ImageMath.eval(
+            "convert(min(max(a+(b-128)/16,0),255),'L')", a=band, b=noise
+        )
+        for band in rgb.split()
+    ]
+    img = Image.merge("RGB", bands)
     vig = Image.new("L", (W, H), 0)
     vd = ImageDraw.Draw(vig)
     vd.ellipse([-W * 0.25, -H * 0.25, W * 1.25, H * 1.25], fill=255)
