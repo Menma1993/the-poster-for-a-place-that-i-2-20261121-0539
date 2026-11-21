@@ -336,17 +336,26 @@ def render():
     draw.rectangle([34, 34, W - 34, H - 34], outline=CREAM + (110,), width=1)
 
     # ---------- grain + vignette ----------
-    # keep the grain light: heavy grain blows the PNG past the 1 MiB gate.
+    # Coarse grain, not per-pixel: a 128x128 noise field upscaled with
+    # BILINEAR reads as vintage paper texture, and — critically — it lets
+    # the final image compress as a real PNG under the 1 MiB gate. The
+    # old per-pixel grain (and the JPEG-in-entry.png workaround it
+    # forced) blew a plain RGB PNG past 1.49 MB; even with NO grain the
+    # RGB PNG is 1.32 MB, so the image is quantised to a 256-colour
+    # palette (MEDIANCUT + Floyd-Steinberg dither) at the end. Vintage
+    # poster art tolerates a palette well — the sky stays smooth via
+    # dithering — and the file lands near 0.59 MB with margin.
     # PIL only, fully deterministic: a separate seeded Random stream feeds
-    # uniform bytes into a noise image, added per band with ImageChops
-    # (amplitude ~+-8, close to the old gaussian sigma 3).
+    # uniform bytes into a low-res noise image, added per band with
+    # ImageChops (amplitude ~+-8, close to the old gaussian sigma 3).
     # NOTE: do NOT use PIL's removed math helper module here — Pillow
     # dropped it in Pillow 12, and the grader sandbox (Python 3.13)
     # ships Pillow 12+, so importing it raises ImportError and fails
     # run_completes. The point()+ImageChops math below reproduces the same
     # min(max(a+(b-128)/16,0),255) with correct clipping.
     grain_rng = random.Random(SEED + 999)
-    noise = Image.frombytes("L", (W, H), grain_rng.randbytes(W * H))
+    noise = Image.frombytes("L", (128, 128), grain_rng.randbytes(128 * 128))
+    noise = noise.resize((W, H), Image.BILINEAR)
     noise_pos = noise.point(lambda v: max(v - 128, 0) // 16)
     noise_neg = noise.point(lambda v: max(128 - v, 0) // 16)
     rgb = base.convert("RGB")
@@ -361,7 +370,9 @@ def render():
     vig = vig.filter(ImageFilter.GaussianBlur(120))
     black = Image.new("RGB", (W, H), (0, 0, 0))
     img = Image.composite(img, Image.blend(img, black, 0.22), vig)
-    return img
+    # Real PNG under the 1 MiB gate: 256-colour palette, dithered.
+    return img.quantize(colors=256, method=Image.Quantize.MEDIANCUT,
+                        dither=Image.Dither.FLOYDSTEINBERG)
 
 
 if __name__ == "__main__":
